@@ -1,2 +1,3 @@
 # MLPortfolio
-Portfolio of my ML work
+Introduction to Python programming.
+Introduction to Data analysis using Pandas.
