@@ -1,32 +1,29 @@
-#======= Import the neccessary modules ===================================
+﻿#======= Import the neccessary modules ===================================
 import os
-import json
 import sys
 import uuid
+import json
+import pickle
 import linecache
+import numpy as np
+import seaborn as sns
 from datetime import datetime
-from sklearn.cross_validation import train_test_split
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import confusion_matrix
 from sklearn.preprocessing import Normalizer
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import precision_score
+from sklearn.model_selection import train_test_split
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import roc_auc_score
-from sklearn.metrics import roc_curve
-from sklearn.metrics import confusion_matrix
-import seaborn as sns
-import matplotlib.pyplot as plt
-%matplotlib inline
-
-
 #=========================================================================
 # Class definition
 class modMLModelingPipeline:
     # Instantiate all variables and methods required for the class.
     def __init__(self,ClientID,ClientName,Source,Output,
-                 TrainedModel,ExecutionLog,ExecutionLogFileName,Archive,
-                 dfX,dfY,total_rowCount,IsTimeBasedSplitting,Training_split_ratio,
-                 Crossvalidation_split_ratio, Test_split_ratio
+                 TrainedModel,ExecutionLog,ExecutionLogFileName,Archive
                 ):
         #====== Set all the App config parameters from the json, input and output data ======
         self.ClientID                    = ClientID
@@ -37,17 +34,18 @@ class modMLModelingPipeline:
         self.ExecutionLog                = ExecutionLog
         self.ExecutionLogFileName        = ExecutionLogFileName
         self.Archive                     = Archive
-        self.dfX                         = dfX
-        self.dfY                         = dfY
-        self.total_rowCount              = total_rowCount
-        self.IsTimeBasedSplitting        = IsTimeBasedSplitting
-        self.Training_split_ratio        = Training_split_ratio
-        self.Crossvalidation_split_ratio = Crossvalidation_split_ratio
-        self.Test_split_ratio            = Test_split_ratio
         #====================================================================================
 
     # Split the input and output variables based on specified splitting ratios.
-    def split_data(self):
+    def split_data(self,
+                   dfX,
+                   dfY,
+                   total_rowCount,
+                   IsTimeBasedSplitting,
+                   Training_split_ratio,
+                   Crossvalidation_split_ratio,
+                   Test_split_ratio                   
+                  ):
         #====== Variables to hold the split data ====================
         global X_train
         global X_cv
@@ -57,30 +55,31 @@ class modMLModelingPipeline:
         global Y_test
         #===========================================================
         # Check, if timebased splitting is required.
-        if self.IsTimeBasedSplitting == 1:
+        if IsTimeBasedSplitting:
             #Do time based splitting.
             # Split the training set.
-            trainingUBound = round(self.Training_split_ratio * self.total_rowCount)
-            X_train = self.dfX[0:trainingUBound]
-            Y_train = self.dfY[0:trainingUBound]
+            trainingUBound = round(Training_split_ratio * total_rowCount)
+            X_train = dfX[0:trainingUBound]
+            Y_train = dfY[0:trainingUBound]
             # Split the cross-validation set.
             crossvalidationLBound = trainingUBound
-            crossvalidationUBound = crossvalidationLBound + round(self.Crossvalidation_split_ratio * self.total_rowCount)
-            X_cv = self.dfX[crossvalidationLBound:crossvalidationUBound]
-            Y_cv = self.dfY[crossvalidationLBound:crossvalidationUBound]
+            crossvalidationUBound = crossvalidationLBound + round(Crossvalidation_split_ratio * total_rowCount)
+            X_cv = dfX[crossvalidationLBound:crossvalidationUBound]
+            Y_cv = dfY[crossvalidationLBound:crossvalidationUBound]
             # Split the test set.
             testLBound = crossvalidationUBound
-            testUBound = testLBound + round(self.Test_split_ratio * self.total_rowCount)
-            X_test = self.dfX[testLBound:testUBound]
-            Y_test = self.dfY[testLBound:testUBound]
+            testUBound = testLBound + round(Test_split_ratio * total_rowCount)
+            X_test = dfX[testLBound:testUBound]
+            Y_test = dfY[testLBound:testUBound]
         else:
             # Do random splitting.
-            cv_size   = (2 * self.Crossvalidation_split_ratio) # 0.4
-            test_size = Test_split_ratio                       # 0.2
-            X_train ,X_cv = train_test_split(self.dfX,test_size=cv_size) 
-            Y_train ,Y_cv = train_test_split(self.dfY,test_size=cv_size) 
-            X_cv ,X_test  = train_test_split(X_cv,test_size=test_size) 
-            Y_cv ,Y_test  = train_test_split(Y_cv,test_size=test_size)
+            # Split the data in the proportion, 0.6,0.2,0.2
+            cv_size   = (2 * Crossvalidation_split_ratio)
+            test_size = 0.5                               
+            X_train ,X_cv_i = train_test_split(dfX,test_size=cv_size) 
+            Y_train ,Y_cv_i = train_test_split(dfY,test_size=cv_size) 
+            X_cv ,X_test    = train_test_split(X_cv_i,test_size=test_size) 
+            Y_cv ,Y_test    = train_test_split(Y_cv_i,test_size=test_size)
 
         # Return the split data.
         return X_train,X_cv,X_test,Y_train,Y_cv,Y_test
@@ -95,7 +94,7 @@ class modMLModelingPipeline:
         global Y_test_ravel
         
         # Check, if data is to be normalized/standardized.
-        if IsNormalize == 1:
+        if IsNormalize:
             # Instantiate the normalizer
             normalizer = Normalizer()
         else:
@@ -113,9 +112,25 @@ class modMLModelingPipeline:
         Y_test_ravel  = np.ravel(Y_test, order = 'C') 
         
         # Return the standardized data.
-        return X_train_stdzd,X_cv_stdzd,X_test_stdzd,Y_train_ravel,Y_cv_ravel,Y_test_ravel
+        return normalizer,X_train_stdzd,X_cv_stdzd,X_test_stdzd,Y_train_ravel,Y_cv_ravel,Y_test_ravel
         
+    # Method to get the optimal Hyper-parameter lambda in LR case.
+    def  GetModelHyperParameter(self):
+        # prepare a range of alpha values to test.
+        param_grid = {'C': [0.001, 0.01, 0.1, 1, 10, 100, 1000,10000,100000,1000000,10000000] }
+        # create and fit a logistic regression model, testing each alpha
+        model = LogisticRegression(penalty='l2',class_weight='balanced')
+        grid = GridSearchCV(estimator=model, param_grid=param_grid,n_jobs=-1,cv=3)
+        grid.fit(X_train_stdzd, Y_train_ravel)
+        # summarize the results of the grid search
+        gridResults = grid
+        bestScore   = grid.best_score_
+        optimal_HyperParameter = grid.best_estimator_.C
+        
+        # Return the optimal Hyper-parameter.
+        return gridResults,bestScore,optimal_HyperParameter
 
+    
     # Method to return the non-calibrated model after training.
     def GetTrainedModel(self,optimalHyperparameter):
         # instantiate the Logistic Regression model with the optimal lambda.
@@ -156,20 +171,34 @@ class modMLModelingPipeline:
         return X_test_stdzd, Y_pred_calib
     
     # Method to get the classifier metrics.
-    def GetModelConfusionMatrix(self):
+    def GetModelConfusionMatrixForBinaryClass(self):
+        #https://datascience.stackexchange.com/questions/40067/confusion-matrix-three-classes-python
         # Plot the confusion matrix for the trained model.
         conf_mat = confusion_matrix(Y_test, Y_pred_test)
+        tn, fp, fn, tp = confusion_matrix(Y_test, Y_pred_test).ravel()
         fig, ax = plt.subplots(figsize=(5,5))
         sns.heatmap(conf_mat, annot=True, fmt='d'
                     ,xticklabels=['Not Selected','Selected'], yticklabels=['Not Selected','Selected'])
         plt.title('Confusion Matrix :')
         plt.ylabel('Actual')
         plt.xlabel('Predicted')
-        return plt
+        # For multi-class, cannot return the below. Explore alternate ways.
+        return plt, conf_mat, tn, fp, fn, tp
 
+    # Method to get the actual class distribution.
+    def GetActualClassDistributionForBinaryClass(self):
+        # Get the actual class distribution from the test set.
+        negative_class = Y_test['Is_Selected'].value_counts()[0]
+        positive_class = Y_test['Is_Selected'].value_counts()[1]
+        # For multi-class, cannot return the below. Explore alternate ways.
+        return negative_class,positive_class
+        
+        
     # Method to get the classifier ROC.
-    def GetModelROC(self):
+    def GetModelROCForBinaryClass(self):
         # Plot the ROC curve for the trained model.
+        # Get the ROC score
+        roc_score = roc_auc_score(Y_test_ravel,Y_pred_calib)
         # Calculate the RoC curve
         fpr, tpr, thresholds = roc_curve(Y_test_ravel,Y_pred_calib,pos_label=1)   # compute the roc curve.
         plt.plot([0, 1], [0, 1], linestyle='--')                                  # plot the 50% probability line.
@@ -177,7 +206,7 @@ class modMLModelingPipeline:
         plt.title("ROC Curve.")                                                   # set the title of the plot.
         plt.xlabel("False Positive Rate")                                         # set the x label of the plot.
         plt.ylabel("True Positive Rate")                                          # set the y label of the plot.
-        return plt
+        return plt, roc_score
 
 #===== Move this outside of this class ====================================================================================
     # Method to get predictions.
@@ -238,8 +267,52 @@ class modMLModelingPipeline:
 
         with open(executionLog + 'ExecutionLog.txt', 'w+') as outfile:
             json.dump(data, outfile)
+        
+        return sourceLoc,outputLoc,trainedModelLoc,archiveLog
         #====================================================================
         
+    # Pickle the trained object.
+    def PickleTrainedObject(self,objType,trainedObject):
+        if objType == 'TM': # Trained Model
+            # Generate the destination filename.
+            pklTrainedObject = self.TrainedModel + 'trainedModel_' + self.ClientID
+        elif objType == 'TN': # Trained Normalizer
+            pklTrainedObject = self.TrainedModel + 'trainedStandardizer_' + self.ClientID
+        elif objType == 'TCM': # Trained Calibrated Model
+            pklTrainedObject = self.TrainedModel + 'trainedCalibratedModel_' + self.ClientID
+        else:
+            pklTrainedObject = None
+        # Open the picklefile in binary mode.
+        pklFile = open(pklTrainedObject, 'ab')
+        # Dump the trainedModel to the pickle file.
+        pickle.dump(trainedObject, pklFile) 
+        # Close the pickle file.
+        pklFile.close()
+        return pklTrainedObject
+
+
+    # Get the trained object from Pickle file.
+    def GetTrainedObjectFromPickle(self,objType):
+        # Generate the destination filename.
+        if objType == 'TM': # Trained Model
+            pklTrainedObject = self.TrainedModel + 'trainedModel_' + self.ClientID
+        elif objType == 'TN': # Trained Normalizer
+            pklTrainedObject = self.TrainedModel + 'trainedStandardizer_' + self.ClientID
+        elif objType == 'TCM': # Trained Calibrated Model
+            pklTrainedObject = self.TrainedModel + 'trainedCalibratedModel_' + self.ClientID
+        else:
+            pklTrainedObject = None
+
+        # Open the trained object file in binary mode.
+        pklFile = open(pklTrainedObject, 'rb')
+        # Load the trained model from pickle.
+        trainedObject = pickle.load(pklFile)
+        # Close the pickle file.
+        pklFile.close()
+        # Return the trained model.
+        return trainedObject
+
+
     # Write to activity log.
     def WriteToActivityLog(self,classApplication,classMethod,statusType,statusDescription=''):
         #===== Get the activity details to log ==============================

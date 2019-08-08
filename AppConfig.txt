@@ -1,0 +1,1 @@
+{"AppConfig": [{"Id":"ClientID","Name":"Client","Source":"C:\\POC\\Source\\","Output":"C:\\POC\\Output\\","TrainedModel":"C:\\POC\\TrainedModel\\", "ExecutionLog":"C:\\POC\\Log\\","ExecutionLogFileName":"ExecutionLog.txt","Archive":"C:\\POC\\Archive\\"}]}
