@@ -1,4 +1,4 @@
-﻿#======= Import the neccessary modules ===================================
+#======= Import the neccessary modules ===================================
 import os
 import sys
 import uuid
@@ -19,9 +19,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.calibration import CalibratedClassifierCV
 #=========================================================================
+
 # Class definition
 class modMLModelingPipeline:
-    # Instantiate all variables and methods required for the class.
     def __init__(self,ClientID,ClientName,Source,Output,
                  TrainedModel,ExecutionLog,ExecutionLogFileName,Archive
                 ):
@@ -46,14 +46,6 @@ class modMLModelingPipeline:
                    Crossvalidation_split_ratio,
                    Test_split_ratio                   
                   ):
-        #====== Variables to hold the split data ====================
-        global X_train
-        global X_cv
-        global X_test
-        global Y_train
-        global Y_cv
-        global Y_test
-        #===========================================================
         # Check, if timebased splitting is required.
         if IsTimeBasedSplitting:
             #Do time based splitting.
@@ -84,15 +76,17 @@ class modMLModelingPipeline:
         # Return the split data.
         return X_train,X_cv,X_test,Y_train,Y_cv,Y_test
         
+  
     # Standardize or Normalize the data.
-    def standardize_data(self,IsNormalize=0):
-        global X_train_stdzd
-        global X_cv_stdzd
-        global X_test_stdzd
-        global Y_train_ravel
-        global Y_cv_ravel
-        global Y_test_ravel
-        
+    def standardize_data(self,
+                         X_train,
+                         X_cv,
+                         X_test,
+                         Y_train,
+                         Y_cv,
+                         Y_test,
+                         IsNormalize=0
+                        ):
         # Check, if data is to be normalized/standardized.
         if IsNormalize:
             # Instantiate the normalizer
@@ -115,7 +109,10 @@ class modMLModelingPipeline:
         return normalizer,X_train_stdzd,X_cv_stdzd,X_test_stdzd,Y_train_ravel,Y_cv_ravel,Y_test_ravel
         
     # Method to get the optimal Hyper-parameter lambda in LR case.
-    def  GetModelHyperParameter(self):
+    def  GetModelHyperParameters(self,
+                                X_train_stdzd,
+                                Y_train_ravel
+                               ):
         # prepare a range of alpha values to test.
         param_grid = {'C': [0.001, 0.01, 0.1, 1, 10, 100, 1000,10000,100000,1000000,10000000] }
         # create and fit a logistic regression model, testing each alpha
@@ -132,9 +129,11 @@ class modMLModelingPipeline:
 
     
     # Method to return the non-calibrated model after training.
-    def GetTrainedModel(self,optimalHyperparameter):
+    def GetTrainedModel(self,
+                        X_train_stdzd,
+                        Y_train_ravel,                        
+                        optimalHyperparameter):
         # instantiate the Logistic Regression model with the optimal lambda.
-        global lr_optimal
         lr_optimal = LogisticRegression(penalty='l2',              # use L2 regularizer.
                                         C=(optimalHyperparameter), # use Inverse of Lambda.
                                         class_weight='balanced',   # uses the values of y to automatically adjust 
@@ -147,10 +146,13 @@ class modMLModelingPipeline:
         return lr_optimal
         
     # Method to return the calibrated model after training.
-    def GetCalibratedModel(self):
+    def GetCalibratedModel(self,
+                           lr_optimal,
+                           X_train_stdzd,
+                           Y_train_ravel                          
+                          ):
         ### Use CalibratedClassifierCV
         # Instantiate the CalibratedClassifierCV model.
-        global calibratedCCV
         calibratedCCV = CalibratedClassifierCV(lr_optimal,       # Logistic Regression model.
                                                method='sigmoid', # sigmoid function.
                                                cv=5)             # crossvalidation #'s.
@@ -159,19 +161,24 @@ class modMLModelingPipeline:
         return calibratedCCV
 
     # Method to get predictions.
-    def GetPredictions(self):
-        global Y_pred_test
+    def GetPredictions(self,
+                       lr_optimal,
+                       X_test_stdzd):
         Y_pred_test = lr_optimal.predict(X_test_stdzd)   # predict,response from the Logistic Regression model.
-        return X_test_stdzd, Y_pred_test
+        return Y_pred_test
     
     # Method to get calibrated predictons.
-    def GetCalibratedPredictions(self):
-        global Y_pred_calib
+    def GetCalibratedPredictions(self,
+                                 calibratedCCV,
+                                X_test_stdzd):
         Y_pred_calib = calibratedCCV.predict_proba(X_test_stdzd)[:, 1]   # predict class probabilities on the testset.
-        return X_test_stdzd, Y_pred_calib
+        return Y_pred_calib
     
     # Method to get the classifier metrics.
-    def GetModelConfusionMatrixForBinaryClass(self):
+    def GetModelConfusionMatrixForBinaryClass(self,
+                                              Y_test,
+                                              Y_pred_test
+                                             ):
         #https://datascience.stackexchange.com/questions/40067/confusion-matrix-three-classes-python
         # Plot the confusion matrix for the trained model.
         conf_mat = confusion_matrix(Y_test, Y_pred_test)
@@ -185,17 +192,10 @@ class modMLModelingPipeline:
         # For multi-class, cannot return the below. Explore alternate ways.
         return plt, conf_mat, tn, fp, fn, tp
 
-    # Method to get the actual class distribution.
-    def GetActualClassDistributionForBinaryClass(self):
-        # Get the actual class distribution from the test set.
-        negative_class = Y_test['Is_Selected'].value_counts()[0]
-        positive_class = Y_test['Is_Selected'].value_counts()[1]
-        # For multi-class, cannot return the below. Explore alternate ways.
-        return negative_class,positive_class
-        
-        
     # Method to get the classifier ROC.
-    def GetModelROCForBinaryClass(self):
+    def GetModelROCForBinaryClass(self,
+                                  Y_test_ravel,
+                                  Y_pred_calib):
         # Plot the ROC curve for the trained model.
         # Get the ROC score
         roc_score = roc_auc_score(Y_test_ravel,Y_pred_calib)
@@ -208,21 +208,21 @@ class modMLModelingPipeline:
         plt.ylabel("True Positive Rate")                                          # set the y label of the plot.
         return plt, roc_score
 
-#===== Move this outside of this class ====================================================================================
     # Method to get predictions.
-    def GetPredictionsOnUnseenData(self):
+    def GetPredictionsOnUnseenData(self,
+                                   lr_optimal,
+                                   X_unlabelled_stdzd):
         # predict,response from the Logistic Regression model.
-        global Y_pred_unlabelled
         Y_pred_unlabelled = lr_optimal.predict(X_unlabelled_stdzd)
-        return X_unlabelled_stdzd, Y_pred_unlabelled
+        return Y_pred_unlabelled
     
     # Method to get calibrated predictons.
-    def GetCalibratedPredictionsOnUnseenData(self):
+    def GetCalibratedPredictionsOnUnseenData(self,
+                                             calibratedCCV,
+                                             X_unlabelled_stdzd):
         # predict class probabilities on the unlabelledset.
-        global Y_pred_unlabelled_calib
         Y_pred_unlabelled_calib = calibratedCCV.predict_proba(X_unlabelled_stdzd)[:, 1] 
-        return X_unlabelled_stdzd, Y_pred_unlabelled_calib
-#==========================================================================================================================
+        return Y_pred_unlabelled_calib
     
     # Create all the required App config directories.
     def CreateAppDirectories(self):
