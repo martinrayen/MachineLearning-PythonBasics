@@ -251,22 +251,25 @@ class modMLModelingPipeline:
             os.mkdir(archiveLog)
         #====================================================================
         #===== Create the ExecutionLog File with a dummy entry ==============
-        data = {}
-        data['ExecutionLog'] = []
-        data['ExecutionLog'].append({
-            'ID'         :'ClientID',
-            'ExecutionID':'Global_Unique_Identifier',
-            'DateTime'   :'Current_Date',
-            'Class'      :'Python class',
-            'Method'     :'Python method ',
-            'StatusType' :'Success|Error',
-            'Description':'Success|Error',
-            'User'       :'User Login'
+        #===== Run, only if ExecutionLog does not exist =====================
+        executionLogFile = executionLog + 'ExecutionLog.txt'
+        if not os.path.isfile(executionLogFile):
+            data = {}
+            data['ExecutionLog'] = []
+            data['ExecutionLog'].append({
+                'ID'         :'ClientID',
+                'ExecutionID':'Global_Unique_Identifier',
+                'DateTime'   :'Current_Date',
+                'Class'      :'Python class',
+                'Method'     :'Python method ',
+                'StatusType' :'Success|Error',
+                'Description':'Success|Error',
+                'User'       :'User Login'
 
-        })
+            })
 
-        with open(executionLog + 'ExecutionLog.txt', 'w+') as outfile:
-            json.dump(data, outfile)
+            with open(executionLogFile, 'w+') as outfile:
+                json.dump(data, outfile)
         
         return sourceLoc,outputLoc,trainedModelLoc,archiveLog
         #====================================================================
@@ -324,7 +327,7 @@ class modMLModelingPipeline:
         #====================================================================
         
         #====== Extract the error details to be logged ======================
-        if statusType != 'Success':
+        if statusType == 'Error':
             exc_type, exc_obj, tb = sys.exc_info()
             f = tb.tb_frame
             lineno = tb.tb_lineno
